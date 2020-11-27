@@ -19,6 +19,8 @@ import (
 )
 
 var wg sync.WaitGroup
+var port string
+var remotes []string
 
 type matrix struct {
 	dataframe.DataFrame
@@ -142,7 +144,7 @@ func trainTestSplit(filename string, size int, xTrain chan mat.Matrix, xTest cha
 	rand.Seed(42)
 	//Read file
 	file := dataframe.ReadCSV(pokemonMatchupsTrain)
-	fileData := file.Select([]string{"Index", "Hp_1", "Attack_1", "Hp_2", "Attack_2", "Winner"})
+	fileData := file.Select([]string{"Index", "Hp_1", "Attack_1", "Hp_2", "Attack_2"})
 
 	fileData = fileData.Filter(dataframe.F{"Index", series.LessEq, xSize})
 	fileData = fileData.Drop(0)
@@ -153,7 +155,7 @@ func trainTestSplit(filename string, size int, xTrain chan mat.Matrix, xTest cha
 
 	//set test
 	file2 := dataframe.ReadCSV(pokemonMatchupsTest)
-	file2Data := file2.Select([]string{"Index", "Hp_1", "Attack_1", "Hp_2", "Attack_2", "Winner"})
+	file2Data := file2.Select([]string{"Index", "Hp_1", "Attack_1", "Hp_2", "Attack_2"})
 
 	file2Data = file2Data.Filter(dataframe.F{"Index", series.Greater, xSize})
 	file2Data = file2Data.Drop(0)
@@ -162,9 +164,8 @@ func trainTestSplit(filename string, size int, xTrain chan mat.Matrix, xTest cha
 	var test mat.Matrix
 	test = matrix{file2Data}
 
-	file3Data := fileData.Drop(0)
-	file3Data = file3Data.Drop(0)
-	file3Data = file3Data.Drop(0)
+	file3Data := file2.Select([]string{"Index", "Winner"})
+	file3Data = file3Data.Filter(dataframe.F{"Index", series.LessEq, xSize})
 	file3Data = file3Data.Drop(0)
 
 	//set x test data
@@ -172,12 +173,8 @@ func trainTestSplit(filename string, size int, xTrain chan mat.Matrix, xTest cha
 	train2 = matrix{file3Data}
 
 	//set y test data
-	file4Data := file2.Select([]string{"Index", "Hp_1", "Attack_1", "Hp_2", "Attack_2", "Winner"})
+	file4Data := file2.Select([]string{"Index", "Winner"})
 	file4Data = file4Data.Filter(dataframe.F{"Index", series.Greater, xSize})
-	file4Data = file4Data.Drop(0)
-	file4Data = file4Data.Drop(0)
-	file4Data = file4Data.Drop(0)
-	file4Data = file4Data.Drop(0)
 	file4Data = file4Data.Drop(0)
 
 	var test2 mat.Matrix
@@ -315,7 +312,12 @@ func (l *LogRegression) predict(X mat.Matrix, y mat.Matrix) (mat.Matrix, float64
 	linearModel.Product(X, l.weights)
 	//matrix_predict <- linearModel
 	yPredicted := decisionBoundary(sigmoid(linearModel))
-	accuracy := accuracyPred(yPredicted, y)
+	var accuracy float64
+	if y != nil {
+		accuracy = accuracyPred(yPredicted, y)
+	} else {
+		accuracy = 1.0
+	}
 	return yPredicted, accuracy
 
 }
@@ -356,6 +358,11 @@ func getPokemons(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pokemons)
 }
 
+func getBias(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(bot.bias)
+}
+
 func createPokemon(w http.ResponseWriter, r *http.Request) {
 	var newTask pokemon
 	requestBody, err := ioutil.ReadAll(r.Body)
@@ -367,6 +374,15 @@ func createPokemon(w http.ResponseWriter, r *http.Request) {
 
 	newTask.ID = len(pokemons) + 1
 	pokemons = append(pokemons, newTask)
+
+	if port == "4000" {
+		for _, port := range remotes {
+			req, _ := http.NewRequest("POST", "http://localhost:"+port+"/pokemons", r.Body)
+			req.Header.Set("content-type", "application/json")
+
+		}
+		fmt.Println("Pokemones creado")
+	}
 
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -389,60 +405,157 @@ func getPokemonWithID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-/*func getPokemonWinner(w http.ResponseWriter, r *http.Request) {
-	response, err := http.Get("http://localhost:4000/pokemons/1")
+func showPokemons(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	firstID, err := strconv.Atoi(vars["id1"])
 	if err != nil {
-		fmt.Printf("The HTTP request failed with error %s\n", err)
-	} else {
-		data, _ := ioutil.ReadAll(response.Body)
-		fmt.Println(string(data))
+		fmt.Fprintf(w, "Invalid ID 1")
+		return
 	}
-	predictions, accuracyPredict := data2.predict(xTestData, yTestData)
+	secondID, err := strconv.Atoi(vars["id2"])
+	if err != nil {
+		fmt.Fprintf(w, "Invalid ID 2")
+		return
+	}
+	var lista_pokemon []pokemon
+	for _, task := range pokemons {
+		if task.ID == firstID || task.ID == secondID {
+			lista_pokemon = append(lista_pokemon, task)
+		}
+	}
 
-}*/
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(lista_pokemon)
+
+}
 
 func indexRoute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Welcome to the Pokemon MatchUp API")
 }
 
-func main() {
+type botTrain struct {
+	xTestData  mat.Matrix `json:XTestData`
+	yTestData  mat.Matrix `json:YTestData`
+	parameters mat.Matrix `json:Parameters`
+	bias       float64    `json:Bias`
+}
 
-	wg.Add(1)
-	var port string
-	router := mux.NewRouter().StrictSlash(true)
-	fmt.Print("Ingrese el puerto del API: ")
-	fmt.Scanf("%s", &port)
-	/*filename := "./Pokemon_matchups.csv"
-	split := 18515
-	xTrain := make(chan mat.Matrix)
-	xTest := make(chan mat.Matrix)
-	yTrain := make(chan mat.Matrix)
-	yTest := make(chan mat.Matrix)
+type Result struct {
+	Prediction mat.Matrix `json:Prediction`
+	Accuracy   float64    `json:Accuracy`
+}
 
-	//set weights
-	weights := make([]float64, 5)
-	for i := range weights {
-		weights[i] = 1
+var bot botTrain
+var data LogRegression
+
+func trainData(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(bot)
+}
+
+func predictWinner(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskID1, err := strconv.Atoi(vars["id1"])
+	taskID2, err := strconv.Atoi(vars["id2"])
+	if err != nil {
+		fmt.Fprintf(w, "Invalid ID")
+		return
+	}
+	var pokemon1 pokemon
+	var pokemon2 pokemon
+	for _, poke := range pokemons {
+		if poke.ID == taskID1 {
+			pokemon1 = poke
+		}
+		if poke.ID == taskID2 {
+			pokemon2 = poke
+		}
 	}
 
-	weightsData := mat.NewDense(5, 1, weights)
+	var util []float64
+	util = append(util, float64(pokemon1.Hp))
+	util = append(util, float64(pokemon1.Attack))
+	util = append(util, float64(pokemon2.Hp))
+	util = append(util, float64(pokemon2.Attack))
+	n := mat.NewDense(1, 4, util)
 
-	go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
+	predictions, accuracyPredict := data.predict(n, nil)
 
-	xTrainData := <-xTrain
-	xTestData := <-xTest
-	yTrainData := <-yTrain
-	yTestData := <-yTest
+	var result = Result{predictions, accuracyPredict}
+	matPrint(predictions)
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(result)
 
-	data2 := LogRegression{0.0001, 50000, weightsData, 0.0}
+}
 
-	parameters, bias := data2.fit(xTrainData, yTrainData)*/
+func main() {
+	wg.Add(1)
+
+	router := mux.NewRouter().StrictSlash(true)
+
+	fmt.Println("Ingrese el puerto")
+	fmt.Scanf("%s", &port)
+	var ports_list = []string{"4000", "4001", "4002", "4003", "4004"}
+
+	for _, p := range ports_list {
+		if p != port {
+			remotes = append(remotes, p)
+		}
+	}
+
+	if port == "4000" {
+		filename := "./Pokemon_matchups.csv"
+		split := 18515
+		xTrain := make(chan mat.Matrix)
+		xTest := make(chan mat.Matrix)
+		yTrain := make(chan mat.Matrix)
+		yTest := make(chan mat.Matrix)
+
+		//set weights
+		weights := make([]float64, 4)
+		for i := range weights {
+			weights[i] = 1
+		}
+
+		weightsData := mat.NewDense(4, 1, weights)
+
+		go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
+
+		xTrainData := <-xTrain
+		xTestData := <-xTest
+		yTrainData := <-yTrain
+		yTestData := <-yTest
+
+		data2 := LogRegression{0.0001, 50000, weightsData, 0.0}
+
+		parameters, bias := data2.fit(xTrainData, yTrainData)
+
+		_, accuracyPredict := data2.predict(xTestData, yTestData)
+
+		fmt.Println("Accuracy predict: ", accuracyPredict, "%")
+		bot = botTrain{xTestData, yTestData, parameters, bias}
+
+		data = data2
+
+		router.HandleFunc("/", indexRoute)
+		router.HandleFunc("/pokemons", getPokemons).Methods("GET")
+		router.HandleFunc("/pokemons", createPokemon).Methods("POST")
+		router.HandleFunc("/pokemons/{id}", getPokemonWithID).Methods("GET")
+		router.HandleFunc("/pokemons/{id1}/{id2}", showPokemons).Methods("POST")
+		router.HandleFunc("/pokemons/winner/{id1}/{id2}", predictWinner).Methods("GET")
+		log.Fatal(http.ListenAndServe(":"+port, router))
+
+	}
 
 	router.HandleFunc("/", indexRoute)
 	router.HandleFunc("/pokemons", getPokemons).Methods("GET")
 	router.HandleFunc("/pokemons", createPokemon).Methods("POST")
 	router.HandleFunc("/pokemons/{id}", getPokemonWithID).Methods("GET")
-	//router.HandleFunc("/pokemons/winner/{id1}/{id2}", getPokemonWinner).Methods("GET")
+	router.HandleFunc("/pokemons/{id1}/{id2}", showPokemons).Methods("POST")
+	router.HandleFunc("/pokemons/winner/{id1}/{id2}", predictWinner).Methods("GET")
 	log.Fatal(http.ListenAndServe(":"+port, router))
 
 }
