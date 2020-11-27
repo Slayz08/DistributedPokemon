@@ -408,9 +408,10 @@ func indexRoute(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	wg.Add(1)
-
+	var port string
 	router := mux.NewRouter().StrictSlash(true)
-
+	fmt.Print("Ingrese el puerto del API: ")
+	fmt.Scanf("%s", &port)
 	/*filename := "./Pokemon_matchups.csv"
 	split := 18515
 	xTrain := make(chan mat.Matrix)
@@ -442,6 +443,6 @@ func main() {
 	router.HandleFunc("/pokemons", createPokemon).Methods("POST")
 	router.HandleFunc("/pokemons/{id}", getPokemonWithID).Methods("GET")
 	//router.HandleFunc("/pokemons/winner/{id1}/{id2}", getPokemonWinner).Methods("GET")
-	log.Fatal(http.ListenAndServe(":4000", router))
+	log.Fatal(http.ListenAndServe(":"+port, router))
 
 }
