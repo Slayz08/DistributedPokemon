@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -339,6 +340,9 @@ type pokemon struct {
 	Speed   int    `json:Speed`
 }
 
+type election struct {
+}
+
 type allPokemons []pokemon
 
 var pokemons = allPokemons{
@@ -365,28 +369,62 @@ func getBias(w http.ResponseWriter, r *http.Request) {
 
 func createPokemon(w http.ResponseWriter, r *http.Request) {
 	var newTask pokemon
+
 	requestBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		fmt.Fprintf(w, "Insert a Valid Task")
 	}
 
 	json.Unmarshal(requestBody, &newTask)
+	requestBody2, _ := json.Marshal(newTask)
 
 	newTask.ID = len(pokemons) + 1
 	pokemons = append(pokemons, newTask)
 
 	if port == "4000" {
-		for _, port := range remotes {
-			req, _ := http.NewRequest("POST", "http://localhost:"+port+"/pokemons", r.Body)
+		for _, p := range remotes {
+			req, _ := http.NewRequest("POST", "http://localhost:"+p+"/pokemons", bytes.NewBuffer(requestBody2))
 			req.Header.Set("content-type", "application/json")
 
+			client := &http.Client{}
+			client.Do(req)
 		}
-		fmt.Println("Pokemones creado")
 	}
+
+	printPokemonBattle()
 
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newTask)
+}
+
+func printPokemonBattle() {
+	ganador := 0
+
+	fmt.Println("· Batalla Pokemon ·")
+	fmt.Println("   Nombre   |  Tipo  | HP | Ataque | Defensa | Velocidad")
+	fmt.Printf("1: %s | %s | %d | %d | %d | %d \n", pokemons[len(pokemons)-1].Name, pokemons[len(pokemons)-1].Type, pokemons[len(pokemons)-1].Hp, pokemons[len(pokemons)-1].Attack, pokemons[len(pokemons)-1].Defense, pokemons[len(pokemons)-1].Speed)
+	fmt.Printf("2: %s | %s | %d | %d | %d | %d \n", pokemons[len(pokemons)-2].Name, pokemons[len(pokemons)-2].Type, pokemons[len(pokemons)-2].Hp, pokemons[len(pokemons)-2].Attack, pokemons[len(pokemons)-2].Defense, pokemons[len(pokemons)-2].Speed)
+	fmt.Println("Elige al ganador de la batalla! (1/2): ")
+	fmt.Scanf("%s", &ganador)
+
+	//actualizar opcion y mostrar la de los otros
+	/*
+		for _, p := range remotes {
+			var requestBody = {
+				winner: ""
+			}
+			req, _ := http.NewRequest("POST", "http://localhost:"+p+"/elections", bytes.NewBuffer(requestBody2))
+			req.Header.Set("content-type", "application/json")
+
+			client := &http.Client{}
+			client.Do(req)
+		}
+	*/
+}
+
+func postElection(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func getPokemonWithID(w http.ResponseWriter, r *http.Request) {
@@ -507,38 +545,40 @@ func main() {
 	}
 
 	if port == "4000" {
-		filename := "./Pokemon_matchups.csv"
-		split := 18515
-		xTrain := make(chan mat.Matrix)
-		xTest := make(chan mat.Matrix)
-		yTrain := make(chan mat.Matrix)
-		yTest := make(chan mat.Matrix)
+		/*
+			filename := "./Pokemon_matchups.csv"
+			split := 18515
+			xTrain := make(chan mat.Matrix)
+			xTest := make(chan mat.Matrix)
+			yTrain := make(chan mat.Matrix)
+			yTest := make(chan mat.Matrix)
 
-		//set weights
-		weights := make([]float64, 4)
-		for i := range weights {
-			weights[i] = 1
-		}
+			//set weights
+			weights := make([]float64, 4)
+			for i := range weights {
+				weights[i] = 1
+			}
 
-		weightsData := mat.NewDense(4, 1, weights)
+			weightsData := mat.NewDense(4, 1, weights)
 
-		go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
+			go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
 
-		xTrainData := <-xTrain
-		xTestData := <-xTest
-		yTrainData := <-yTrain
-		yTestData := <-yTest
+			xTrainData := <-xTrain
+			xTestData := <-xTest
+			yTrainData := <-yTrain
+			yTestData := <-yTest
 
-		data2 := LogRegression{0.0001, 50000, weightsData, 0.0}
+			data2 := LogRegression{0.0001, 50000, weightsData, 0.0}
 
-		parameters, bias := data2.fit(xTrainData, yTrainData)
+			parameters, bias := data2.fit(xTrainData, yTrainData)
 
-		_, accuracyPredict := data2.predict(xTestData, yTestData)
+			_, accuracyPredict := data2.predict(xTestData, yTestData)
 
-		fmt.Println("Accuracy predict: ", accuracyPredict, "%")
-		bot = botTrain{xTestData, yTestData, parameters, bias}
+			fmt.Println("Accuracy predict: ", accuracyPredict, "%")
+			bot = botTrain{xTestData, yTestData, parameters, bias}
 
-		data = data2
+			data = data2
+		*/
 
 		router.HandleFunc("/", indexRoute)
 		router.HandleFunc("/pokemons", getPokemons).Methods("GET")
