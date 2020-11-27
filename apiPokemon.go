@@ -341,6 +341,7 @@ type pokemon struct {
 }
 
 type election struct {
+	winner int `json:winner`
 }
 
 type allPokemons []pokemon
@@ -399,28 +400,27 @@ func createPokemon(w http.ResponseWriter, r *http.Request) {
 }
 
 func printPokemonBattle() {
-	ganador := 0
+	var ganador int
 
 	fmt.Println("· Batalla Pokemon ·")
 	fmt.Println("   Nombre   |  Tipo  | HP | Ataque | Defensa | Velocidad")
 	fmt.Printf("1: %s | %s | %d | %d | %d | %d \n", pokemons[len(pokemons)-1].Name, pokemons[len(pokemons)-1].Type, pokemons[len(pokemons)-1].Hp, pokemons[len(pokemons)-1].Attack, pokemons[len(pokemons)-1].Defense, pokemons[len(pokemons)-1].Speed)
 	fmt.Printf("2: %s | %s | %d | %d | %d | %d \n", pokemons[len(pokemons)-2].Name, pokemons[len(pokemons)-2].Type, pokemons[len(pokemons)-2].Hp, pokemons[len(pokemons)-2].Attack, pokemons[len(pokemons)-2].Defense, pokemons[len(pokemons)-2].Speed)
-	fmt.Println("Elige al ganador de la batalla! (1/2): ")
+	fmt.Print("Elige al ganador de la batalla! (1/2): ")
 	fmt.Scanf("%s", &ganador)
 
 	//actualizar opcion y mostrar la de los otros
-	/*
-		for _, p := range remotes {
-			var requestBody = {
-				winner: ""
-			}
-			req, _ := http.NewRequest("POST", "http://localhost:"+p+"/elections", bytes.NewBuffer(requestBody2))
-			req.Header.Set("content-type", "application/json")
 
-			client := &http.Client{}
-			client.Do(req)
-		}
-	*/
+	for _, p := range remotes {
+		election := election{winner: ganador}
+		request, _ := json.Marshal(election)
+		req, _ := http.NewRequest("POST", "http://localhost:"+p+"/elections", bytes.NewBuffer(request))
+		req.Header.Set("content-type", "application/json")
+
+		client := &http.Client{}
+		client.Do(req)
+	}
+
 }
 
 func postElection(w http.ResponseWriter, r *http.Request) {
