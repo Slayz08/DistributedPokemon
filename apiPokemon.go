@@ -22,6 +22,8 @@ import (
 var wg sync.WaitGroup
 var port string
 var remotes []string
+var eleccion_uno int
+var eleccion_dos int
 
 type matrix struct {
 	dataframe.DataFrame
@@ -150,30 +152,29 @@ func trainTestSplit(filename string, size int, xTrain chan mat.Matrix, xTest cha
 	fileData = fileData.Filter(dataframe.F{"Index", series.LessEq, xSize})
 	fileData = fileData.Drop(0)
 
-	//set x train data
+	// Data de entrenamiento
 	var train mat.Matrix
 	train = matrix{fileData}
 
-	//set test
 	file2 := dataframe.ReadCSV(pokemonMatchupsTest)
 	file2Data := file2.Select([]string{"Index", "Hp_1", "Attack_1", "Hp_2", "Attack_2"})
 
 	file2Data = file2Data.Filter(dataframe.F{"Index", series.Greater, xSize})
 	file2Data = file2Data.Drop(0)
 
-	//set y train data
+	// Data de testing
 	var test mat.Matrix
 	test = matrix{file2Data}
 
+	// Etiquetas de la data de entrenamiento
 	file3Data := file2.Select([]string{"Index", "Winner"})
 	file3Data = file3Data.Filter(dataframe.F{"Index", series.LessEq, xSize})
 	file3Data = file3Data.Drop(0)
 
-	//set x test data
 	var train2 mat.Matrix
 	train2 = matrix{file3Data}
 
-	//set y test data
+	// Etiquetas de la data de testing
 	file4Data := file2.Select([]string{"Index", "Winner"})
 	file4Data = file4Data.Filter(dataframe.F{"Index", series.Greater, xSize})
 	file4Data = file4Data.Drop(0)
@@ -391,8 +392,9 @@ func createPokemon(w http.ResponseWriter, r *http.Request) {
 			client.Do(req)
 		}
 	}
-
-	printPokemonBattle()
+	if port != "4000" {
+		printPokemonBattle()
+	}
 
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -403,15 +405,18 @@ func printPokemonBattle() {
 	var ganador int
 
 	fmt.Println("· Batalla Pokemon ·")
-	fmt.Println("   Nombre   |  Tipo  | HP | Ataque | Defensa | Velocidad")
+	fmt.Println("   Nombre   |  Tipo  | HP | Ataque | Defensa | Velocidad \n")
 	fmt.Printf("1: %s | %s | %d | %d | %d | %d \n", pokemons[len(pokemons)-1].Name, pokemons[len(pokemons)-1].Type, pokemons[len(pokemons)-1].Hp, pokemons[len(pokemons)-1].Attack, pokemons[len(pokemons)-1].Defense, pokemons[len(pokemons)-1].Speed)
 	fmt.Printf("2: %s | %s | %d | %d | %d | %d \n", pokemons[len(pokemons)-2].Name, pokemons[len(pokemons)-2].Type, pokemons[len(pokemons)-2].Hp, pokemons[len(pokemons)-2].Attack, pokemons[len(pokemons)-2].Defense, pokemons[len(pokemons)-2].Speed)
-	fmt.Print("Elige al ganador de la batalla! (1/2): ")
-	fmt.Scanf("%s", &ganador)
+	//fmt.Print("Elige al ganador de la batalla! (1/2): ")
+	var x, _ = strconv.Atoi(port)
+	rand.Seed(int64(x))
+	ganador = rand.Intn(2-1) + 1
 
 	//actualizar opcion y mostrar la de los otros
 
 	for _, p := range remotes {
+
 		election := election{winner: ganador}
 		request, _ := json.Marshal(election)
 		req, _ := http.NewRequest("POST", "http://localhost:"+p+"/elections", bytes.NewBuffer(request))
@@ -424,6 +429,39 @@ func printPokemonBattle() {
 }
 
 func postElection(w http.ResponseWriter, r *http.Request) {
+	var newTask election
+
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		fmt.Fprintf(w, "Insert a Valid Task")
+	}
+
+	json.Unmarshal(requestBody, &newTask)
+
+	if newTask.winner == 1 {
+		eleccion_uno++
+	} else {
+		eleccion_dos++
+	}
+
+	if eleccion_uno == 4 || eleccion_dos == 4 {
+		if eleccion_uno > eleccion_dos {
+
+			fmt.Println("Elegido: 1\n")
+		} else {
+			fmt.Println("Elegido: 2\n")
+		}
+	}
+	if _, err := http.Get("http://localhost:" + port + "/pokemons/winner/1/2"); err == nil {
+		fmt.Println("Respuesta\n")
+	}
+	fmt.Println("Puerto: " + port)
+	fmt.Println("Eleccion 1: " + strconv.Itoa(eleccion_uno))
+	fmt.Println("Eleccion 2: " + strconv.Itoa(eleccion_dos))
+
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(newTask)
 
 }
 
@@ -479,8 +517,7 @@ type botTrain struct {
 }
 
 type Result struct {
-	Prediction mat.Matrix `json:Prediction`
-	Accuracy   float64    `json:Accuracy`
+	Prediction float64 `json:Prediction`
 }
 
 var bot botTrain
@@ -519,12 +556,21 @@ func predictWinner(w http.ResponseWriter, r *http.Request) {
 	util = append(util, float64(pokemon2.Attack))
 	n := mat.NewDense(1, 4, util)
 
-	predictions, accuracyPredict := data.predict(n, nil)
+	predictions, _ := data.predict(n, nil)
+	vector_predicciones := mat.Col(nil, 0, predictions)
+	var valor_prediccion float64
+	if vector_predicciones[0] == 1 {
+		valor_prediccion = 2.0
+	} else {
+		valor_prediccion = 1.0
+	}
 
-	var result = Result{predictions, accuracyPredict}
+	var result = Result{valor_prediccion}
 	matPrint(predictions)
+
+	fmt.Printf("Pokemon elegido por la IA: %f: ", valor_prediccion)
 	w.Header().Set("content-type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	//w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(result)
 
 }
@@ -543,48 +589,49 @@ func main() {
 			remotes = append(remotes, p)
 		}
 	}
-
+	fmt.Println("Estos son mis remotes")
+	fmt.Printf("%v", remotes)
 	if port == "4000" {
-		/*
-			filename := "./Pokemon_matchups.csv"
-			split := 18515
-			xTrain := make(chan mat.Matrix)
-			xTest := make(chan mat.Matrix)
-			yTrain := make(chan mat.Matrix)
-			yTest := make(chan mat.Matrix)
 
-			//set weights
-			weights := make([]float64, 4)
-			for i := range weights {
-				weights[i] = 1
-			}
+		filename := "./Pokemon_matchups.csv"
+		split := 18515
+		xTrain := make(chan mat.Matrix)
+		xTest := make(chan mat.Matrix)
+		yTrain := make(chan mat.Matrix)
+		yTest := make(chan mat.Matrix)
 
-			weightsData := mat.NewDense(4, 1, weights)
+		//set weights
+		weights := make([]float64, 4)
+		for i := range weights {
+			weights[i] = 1
+		}
 
-			go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
+		weightsData := mat.NewDense(4, 1, weights)
 
-			xTrainData := <-xTrain
-			xTestData := <-xTest
-			yTrainData := <-yTrain
-			yTestData := <-yTest
+		go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
 
-			data2 := LogRegression{0.0001, 50000, weightsData, 0.0}
+		xTrainData := <-xTrain
+		xTestData := <-xTest
+		yTrainData := <-yTrain
+		yTestData := <-yTest
 
-			parameters, bias := data2.fit(xTrainData, yTrainData)
+		data2 := LogRegression{0.0001, 10000, weightsData, 0.0}
 
-			_, accuracyPredict := data2.predict(xTestData, yTestData)
+		parameters, bias := data2.fit(xTrainData, yTrainData)
 
-			fmt.Println("Accuracy predict: ", accuracyPredict, "%")
-			bot = botTrain{xTestData, yTestData, parameters, bias}
+		_, accuracyPredict := data2.predict(xTestData, yTestData)
 
-			data = data2
-		*/
+		fmt.Println("Accuracy predict: ", accuracyPredict, "%")
+		bot = botTrain{xTestData, yTestData, parameters, bias}
+
+		data = data2
 
 		router.HandleFunc("/", indexRoute)
 		router.HandleFunc("/pokemons", getPokemons).Methods("GET")
 		router.HandleFunc("/pokemons", createPokemon).Methods("POST")
 		router.HandleFunc("/pokemons/{id}", getPokemonWithID).Methods("GET")
 		router.HandleFunc("/pokemons/{id1}/{id2}", showPokemons).Methods("POST")
+		router.HandleFunc("/elections", postElection).Methods("POST")
 		router.HandleFunc("/pokemons/winner/{id1}/{id2}", predictWinner).Methods("GET")
 		log.Fatal(http.ListenAndServe(":"+port, router))
 
@@ -595,6 +642,7 @@ func main() {
 	router.HandleFunc("/pokemons", createPokemon).Methods("POST")
 	router.HandleFunc("/pokemons/{id}", getPokemonWithID).Methods("GET")
 	router.HandleFunc("/pokemons/{id1}/{id2}", showPokemons).Methods("POST")
+	router.HandleFunc("/elections", postElection).Methods("POST")
 	router.HandleFunc("/pokemons/winner/{id1}/{id2}", predictWinner).Methods("GET")
 	log.Fatal(http.ListenAndServe(":"+port, router))
 
