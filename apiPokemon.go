@@ -275,7 +275,6 @@ func (l *LogRegression) fit(X mat.Matrix, y mat.Matrix) (mat.Matrix, float64) {
 	nSamples, nFeatures := X.Dims()
 	_, lColumns := l.weights.Dims()
 	costResult := make(chan float64)
-	var prueba mat.Matrix
 	//var cost float64
 	var accuracy float64
 	//gradient descent
@@ -285,7 +284,6 @@ func (l *LogRegression) fit(X mat.Matrix, y mat.Matrix) (mat.Matrix, float64) {
 		//linearModel := <-matrix_util
 		yPredicted := sigmoid(linearModel)
 		yPredicted2 := decisionBoundary(yPredicted)
-		prueba = yPredicted2
 		accuracy = accuracyPred(yPredicted2, y)
 		//compute gradients
 		dw, db := computeGradients(yPredicted, X, y, nSamples, nFeatures)
@@ -299,8 +297,6 @@ func (l *LogRegression) fit(X mat.Matrix, y mat.Matrix) (mat.Matrix, float64) {
 			fmt.Println("Iterador: ", i, "cost: ", cost)
 		}
 	}
-	fmt.Println("Predictions: \n")
-	matPrint(prueba)
 	fmt.Println("Accuracy: ", accuracy, "%")
 	return l.weights, l.bias
 }
@@ -374,7 +370,7 @@ func createPokemon(w http.ResponseWriter, r *http.Request) {
 
 	requestBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		fmt.Fprintf(w, "Insert a Valid Task")
+		fmt.Fprintf(w, "Insert a Valid Pokemon")
 	}
 
 	json.Unmarshal(requestBody, &newTask)
@@ -426,6 +422,15 @@ func printPokemonBattle() {
 		client.Do(req)
 	}
 
+}
+
+func iaPredict() {
+	response, err := http.Get("http://localhost:4000/dataset/train")
+	if err != nil {
+		fmt.Printf("The HTTP request failed")
+	}
+	data, _ := ioutil.ReadAll(response.Body)
+	fmt.Println(string(data))
 }
 
 func postElection(w http.ResponseWriter, r *http.Request) {
@@ -575,6 +580,47 @@ func predictWinner(w http.ResponseWriter, r *http.Request) {
 
 }
 
+type IAdata struct {
+	parameters mat.Matrix `json:Parameters`
+	bias       float64    `json:Bias`
+	xTestData  mat.Matrix `json:xTestData`
+	yTestData  mat.Matrix `json:yTestData`
+}
+
+func train(w http.ResponseWriter, r *http.Request) {
+	filename := "./Pokemon_matchups.csv"
+	split := 18515
+	xTrain := make(chan mat.Matrix)
+	xTest := make(chan mat.Matrix)
+	yTrain := make(chan mat.Matrix)
+	yTest := make(chan mat.Matrix)
+
+	//set weights
+	weights := make([]float64, 4)
+	for i := range weights {
+		weights[i] = 1
+	}
+
+	weightsData := mat.NewDense(4, 1, weights)
+
+	go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
+
+	xTrainData := <-xTrain
+	xTestData := <-xTest
+	yTrainData := <-yTrain
+	yTestData := <-yTest
+
+	data2 := LogRegression{0.0001, 10000, weightsData, 0.0}
+
+	parameters, bias := data2.fit(xTrainData, yTrainData)
+
+	iadata := IAdata{parameters, bias, xTestData, yTestData}
+	data = data2
+
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(iadata)
+}
+
 func main() {
 	wg.Add(1)
 
@@ -589,51 +635,13 @@ func main() {
 			remotes = append(remotes, p)
 		}
 	}
-	fmt.Println("Estos son mis remotes")
-	fmt.Printf("%v", remotes)
+
+	/*_, accuracyPredict := data2.predict(xTestData, yTestData)
+
+	fmt.Println("Accuracy predict: ", accuracyPredict, "%")
+	bot = botTrain{xTestData, yTestData, parameters, bias}
+	*/
 	if port == "4000" {
-
-		filename := "./Pokemon_matchups.csv"
-		split := 18515
-		xTrain := make(chan mat.Matrix)
-		xTest := make(chan mat.Matrix)
-		yTrain := make(chan mat.Matrix)
-		yTest := make(chan mat.Matrix)
-
-		//set weights
-		weights := make([]float64, 4)
-		for i := range weights {
-			weights[i] = 1
-		}
-
-		weightsData := mat.NewDense(4, 1, weights)
-
-		go trainTestSplit(filename, split, xTrain, xTest, yTrain, yTest)
-
-		xTrainData := <-xTrain
-		xTestData := <-xTest
-		yTrainData := <-yTrain
-		yTestData := <-yTest
-
-		data2 := LogRegression{0.0001, 10000, weightsData, 0.0}
-
-		parameters, bias := data2.fit(xTrainData, yTrainData)
-
-		_, accuracyPredict := data2.predict(xTestData, yTestData)
-
-		fmt.Println("Accuracy predict: ", accuracyPredict, "%")
-		bot = botTrain{xTestData, yTestData, parameters, bias}
-
-		data = data2
-
-		router.HandleFunc("/", indexRoute)
-		router.HandleFunc("/pokemons", getPokemons).Methods("GET")
-		router.HandleFunc("/pokemons", createPokemon).Methods("POST")
-		router.HandleFunc("/pokemons/{id}", getPokemonWithID).Methods("GET")
-		router.HandleFunc("/pokemons/{id1}/{id2}", showPokemons).Methods("POST")
-		router.HandleFunc("/elections", postElection).Methods("POST")
-		router.HandleFunc("/pokemons/winner/{id1}/{id2}", predictWinner).Methods("GET")
-		log.Fatal(http.ListenAndServe(":"+port, router))
 
 	}
 
@@ -644,6 +652,7 @@ func main() {
 	router.HandleFunc("/pokemons/{id1}/{id2}", showPokemons).Methods("POST")
 	router.HandleFunc("/elections", postElection).Methods("POST")
 	router.HandleFunc("/pokemons/winner/{id1}/{id2}", predictWinner).Methods("GET")
+	router.HandleFunc("/dataset/train", train).Methods("GET")
 	log.Fatal(http.ListenAndServe(":"+port, router))
 
 }
